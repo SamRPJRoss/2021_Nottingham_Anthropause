@@ -1,5 +1,7 @@
 # 2021_Nottingham_Anthropause
 
+<a href="https://zenodo.org/badge/latestdoi/394008135"><img src="https://zenodo.org/badge/394008135.svg" alt="DOI"></a>
+
 R code and data from Ross (under review).
 
 2020 Nottingham Anthropause.Rproj = R project including all data analysis. Nottingham lockdown full markdown.Rmd and .html = the R markdown and html output, respectively, containing all data analysis.
