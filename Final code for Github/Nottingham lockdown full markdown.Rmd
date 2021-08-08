@@ -1,0 +1,761 @@
+---
+title: "2021_Nottingham_Lockdown full R markdown"
+author: "Samuel R.P-J. Ross"
+date: "08/08/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+require(lubridate)
+require(readr)
+require(ggplot2)
+require(dplyr)
+require(MASS)
+require(glmmTMB)
+require(seewave)
+require(soundecology)
+require(warbleR)
+require(tuneR)
+
+## Data ##
+load(file = 'Data/standardised_index.rda')
+load(file = 'Data/standardised_index_dawn.rda')
+
+Six<-Standard[Standard$hour %in% 5,]
+Midnight<-Standard[Standard$hour %in% 23,]
+Midday<-Standard[Standard$hour %in% 11,]
+Eight<-Standard[Standard$hour %in% 7,]
+
+colramp<-colorRampPalette(colors = c('#ffa600','#003f5c'))# create diverging colour palette of colours
+
+## Functions ##
+'%!in%'<-function(x,y)!('%in%'(x,y)) # function for opposite of %in%
+
+```
+
+This is the R markdown accompanying the manuscript _A suburban soundscape reveals altered acoustic dynamics during COVID-19 lockdown_. Here I will analyse the difference in acoustic indices during versus after COVID-19 lockdown using standardised effect sizes. 
+
+First, I'll generate a stats output matrix:
+
+```{r}
+
+Stats_Out<-data.frame("Index"=rep(as.character(colnames(Standard)[c(2:12)]),each=6),
+                      "Subset"=rep(c("All","Dawn","6am","Midnight","Midday","8am"),11),
+                      'U'=NA,'p.val'=NA,"Diff"=NA,"Diff_lo"=NA,"Diff_up"=NA,'Lock_med'=NA,
+                      'Lock_SD'=NA,'Post_med'=NA,'Post_SD'=NA,'Z'=NA,"Sig"=NA)
+
+```
+
+Now I can begin the analysis, first using all the data together, then on various temporal subsets. 
+
+## All data
+
+```{r}
+
+for (i in 1:length(unique(Stats_Out$Index))) {
+  
+  Data<-data.frame("Post_Index" = Standard[Standard$Period %in% "Post-lockdown",1+i],
+                   "Lock_Index" = c(Standard[Standard$Period %in% "Lockdown",1+i],
+                                    rep(NA,length(Standard[Standard$Period %in% 
+                                                             "Post-lockdown",1+i])-length(Standard[Standard$Period %in% 
+                                                                                                     "Lockdown",1+i]))))
+  Wilcox.out<-wilcox.test(x = Data$Lock_Index, 
+                          y = Data$Post_Index, 
+                          na.rm=TRUE, 
+                          paired=TRUE, 
+                          exact=FALSE, 
+                          conf.int=TRUE, 
+                          digits.rank = 7)
+  
+  Stats_Out$U[Stats_Out$Subset %in% "All"][i]<-Wilcox.out$statistic
+  Stats_Out$p.val[Stats_Out$Subset %in% "All"][i]<-Wilcox.out$p.value
+  Stats_Out$Z[Stats_Out$Subset %in% "All"][i]<-qnorm(Wilcox.out$p.value/2)
+  Stats_Out$Lock_med[Stats_Out$Subset %in% "All"][i]<-median(Data$Lock_Index,na.rm = T)
+  Stats_Out$Lock_SD[Stats_Out$Subset %in% "All"][i]<-sd(Data$Lock_Index,na.rm = T)
+  Stats_Out$Post_med[Stats_Out$Subset %in% "All"][i]<-median(Data$Post_Index,na.rm = T)
+  Stats_Out$Post_SD[Stats_Out$Subset %in% "All"][i]<-sd(Data$Post_Index,na.rm = T)
+  Stats_Out$Diff[Stats_Out$Subset %in% "All"][i]<-Wilcox.out$estimate
+  Stats_Out$Diff_lo[Stats_Out$Subset %in% "All"][i]<-min(Wilcox.out$conf.int)
+  Stats_Out$Diff_up[Stats_Out$Subset %in% "All"][i]<-max(Wilcox.out$conf.int)
+}
+
+```
+
+Note that for AEve, it's not immediately clear what's driving the difference between periods, so I'll dive a little deeper and present the results graphically in the supporting information (Fig. S3): 
+
+```{r}
+
+ggplot(data = Standard,
+       mapping = aes(x = Period,
+                     y = AEve)) +
+      ylab("Acoustic evenness (AEve)") + 
+      xlab("Period") + 
+      theme_classic() +
+      theme(text = element_text(size = 16), 
+                axis.text = element_text(colour = "black"),
+                strip.background = element_blank(),
+                legend.position = "bottom") + 
+      geom_point(mapping = aes(shape = Period),
+                     position = position_jitter(width = 0.35),
+                     size = 2, alpha = 0.2,
+                     show.legend = FALSE) + 
+      geom_boxplot(mapping = aes(fill = Period),
+                       alpha = 0.6) +  
+      scale_shape_manual(values = c(16,17),
+                             guide=FALSE) +
+      scale_fill_manual(values = c('#ffa600','#003f5c'),guide = F)
+
+```
+
+Here, one can see that although the medians don't seem to differ, many more of the points within the 75% quantile are higher during lockdown than post-lockdown. 
+
+## Dawn Chorus
+
+Next, I'll analyse the data from the subset of the full dataset that I cut down to be only those around sunrise (see Methods):
+
+```{r}
+
+for (i in 1:length(unique(Stats_Out$Index))) {
+  
+  Data<-data.frame("Post_Index" = Dawn.chorus[Dawn.chorus$Period %in% "Post-lockdown",1+i],
+                   "Lock_Index" = c(Dawn.chorus[Dawn.chorus$Period %in% "Lockdown",1+i],
+                                    rep(NA,length(Dawn.chorus[Dawn.chorus$Period %in% 
+                                                             "Post-lockdown",1+i])-length(Dawn.chorus[Dawn.chorus$Period %in% 
+                                                                                                     "Lockdown",1+i]))))
+  Wilcox.out<-wilcox.test(x = Data$Lock_Index, 
+                          y = Data$Post_Index, 
+                          na.rm=TRUE, 
+                          paired=TRUE, 
+                          exact=FALSE, 
+                          conf.int=TRUE, 
+                          digits.rank = 7)
+  
+  Stats_Out$U[Stats_Out$Subset %in% "Dawn"][i]<-Wilcox.out$statistic
+  Stats_Out$p.val[Stats_Out$Subset %in% "Dawn"][i]<-Wilcox.out$p.value
+  Stats_Out$Z[Stats_Out$Subset %in% "Dawn"][i]<-qnorm(Wilcox.out$p.value/2)
+  Stats_Out$Lock_med[Stats_Out$Subset %in% "Dawn"][i]<-median(Data$Lock_Index,na.rm = T)
+  Stats_Out$Lock_SD[Stats_Out$Subset %in% "Dawn"][i]<-sd(Data$Lock_Index,na.rm = T)
+  Stats_Out$Post_med[Stats_Out$Subset %in% "Dawn"][i]<-median(Data$Post_Index,na.rm = T)
+  Stats_Out$Post_SD[Stats_Out$Subset %in% "Dawn"][i]<-sd(Data$Post_Index,na.rm = T)
+  Stats_Out$Diff[Stats_Out$Subset %in% "Dawn"][i]<-Wilcox.out$estimate
+  Stats_Out$Diff_lo[Stats_Out$Subset %in% "Dawn"][i]<-min(Wilcox.out$conf.int)
+  Stats_Out$Diff_up[Stats_Out$Subset %in% "Dawn"][i]<-max(Wilcox.out$conf.int)
+}
+
+```
+
+## 6am 
+
+Same analysis for 6am:
+
+```{r}
+
+for (i in 1:length(unique(Stats_Out$Index))) {
+  
+  Data<-data.frame("Post_Index" = Six[Six$Period %in% "Post-lockdown",1+i],
+                   "Lock_Index" = c(Six[Six$Period %in% "Lockdown",1+i],
+                                    rep(NA,length(Six[Six$Period %in% "Post-lockdown",1+i])-length(Six[Six$Period %in% 
+                                                                                                     "Lockdown",1+i]))))
+  Wilcox.out<-wilcox.test(x = Data$Lock_Index, 
+                          y = Data$Post_Index, 
+                          na.rm=TRUE, 
+                          paired=TRUE, 
+                          exact=FALSE, 
+                          conf.int=TRUE, 
+                          digits.rank = 7)
+  
+  Stats_Out$U[Stats_Out$Subset %in% "6am"][i]<-Wilcox.out$statistic
+  Stats_Out$p.val[Stats_Out$Subset %in% "6am"][i]<-Wilcox.out$p.value
+  Stats_Out$Z[Stats_Out$Subset %in% "6am"][i]<-qnorm(Wilcox.out$p.value/2)
+  Stats_Out$Lock_med[Stats_Out$Subset %in% "6am"][i]<-median(Data$Lock_Index,na.rm = T)
+  Stats_Out$Lock_SD[Stats_Out$Subset %in% "6am"][i]<-sd(Data$Lock_Index,na.rm = T)
+  Stats_Out$Post_med[Stats_Out$Subset %in% "6am"][i]<-median(Data$Post_Index,na.rm = T)
+  Stats_Out$Post_SD[Stats_Out$Subset %in% "6am"][i]<-sd(Data$Post_Index,na.rm = T)
+  Stats_Out$Diff[Stats_Out$Subset %in% "6am"][i]<-Wilcox.out$estimate
+  Stats_Out$Diff_lo[Stats_Out$Subset %in% "6am"][i]<-min(Wilcox.out$conf.int)
+  Stats_Out$Diff_up[Stats_Out$Subset %in% "6am"][i]<-max(Wilcox.out$conf.int)
+}
+
+```
+
+## Midnight
+
+Same for Midnight: 
+
+```{r}
+
+for (i in 1:length(unique(Stats_Out$Index))) {
+  
+  Data<-data.frame("Post_Index" = Midnight[Midnight$Period %in% "Post-lockdown",1+i],
+                   "Lock_Index" = c(Midnight[Midnight$Period %in% "Lockdown",1+i],
+                                    rep(NA,length(Midnight[Midnight$Period %in% 
+                                                             "Post-lockdown",1+i])-length(Midnight[Midnight$Period %in% 
+                                                                                                     "Lockdown",1+i]))))
+  Wilcox.out<-wilcox.test(x = Data$Lock_Index, 
+                          y = Data$Post_Index, 
+                          na.rm=TRUE, 
+                          paired=TRUE, 
+                          exact=FALSE, 
+                          conf.int=TRUE, 
+                          digits.rank = 7)
+  
+  Stats_Out$U[Stats_Out$Subset %in% "Midnight"][i]<-Wilcox.out$statistic
+  Stats_Out$p.val[Stats_Out$Subset %in% "Midnight"][i]<-Wilcox.out$p.value
+  Stats_Out$Z[Stats_Out$Subset %in% "Midnight"][i]<-qnorm(Wilcox.out$p.value/2)
+  Stats_Out$Lock_med[Stats_Out$Subset %in% "Midnight"][i]<-median(Data$Lock_Index,na.rm = T)
+  Stats_Out$Lock_SD[Stats_Out$Subset %in% "Midnight"][i]<-sd(Data$Lock_Index,na.rm = T)
+  Stats_Out$Post_med[Stats_Out$Subset %in% "Midnight"][i]<-median(Data$Post_Index,na.rm = T)
+  Stats_Out$Post_SD[Stats_Out$Subset %in% "Midnight"][i]<-sd(Data$Post_Index,na.rm = T)
+  Stats_Out$Diff[Stats_Out$Subset %in% "Midnight"][i]<-Wilcox.out$estimate
+  Stats_Out$Diff_lo[Stats_Out$Subset %in% "Midnight"][i]<-min(Wilcox.out$conf.int)
+  Stats_Out$Diff_up[Stats_Out$Subset %in% "Midnight"][i]<-max(Wilcox.out$conf.int)
+}
+
+```
+
+## Midday
+
+Same for midday: 
+
+```{r}
+
+for (i in 1:length(unique(Stats_Out$Index))) {
+  
+  Data<-data.frame("Post_Index" = Midday[Midday$Period %in% "Post-lockdown",1+i],
+                   "Lock_Index" = c(Midday[Midday$Period %in% "Lockdown",1+i],
+                                    rep(NA,length(Midday[Midday$Period %in% 
+                                                             "Post-lockdown",1+i])-length(Midday[Midday$Period %in% 
+                                                                                                     "Lockdown",1+i]))))
+  Wilcox.out<-wilcox.test(x = Data$Lock_Index, 
+                          y = Data$Post_Index, 
+                          na.rm=TRUE, 
+                          paired=TRUE, 
+                          exact=FALSE, 
+                          conf.int=TRUE, 
+                          digits.rank = 7)
+  
+  Stats_Out$U[Stats_Out$Subset %in% "Midday"][i]<-Wilcox.out$statistic
+  Stats_Out$p.val[Stats_Out$Subset %in% "Midday"][i]<-Wilcox.out$p.value
+  Stats_Out$Z[Stats_Out$Subset %in% "Midday"][i]<-qnorm(Wilcox.out$p.value/2)
+  Stats_Out$Lock_med[Stats_Out$Subset %in% "Midday"][i]<-median(Data$Lock_Index,na.rm = T)
+  Stats_Out$Lock_SD[Stats_Out$Subset %in% "Midday"][i]<-sd(Data$Lock_Index,na.rm = T)
+  Stats_Out$Post_med[Stats_Out$Subset %in% "Midday"][i]<-median(Data$Post_Index,na.rm = T)
+  Stats_Out$Post_SD[Stats_Out$Subset %in% "Midday"][i]<-sd(Data$Post_Index,na.rm = T)
+  Stats_Out$Diff[Stats_Out$Subset %in% "Midday"][i]<-Wilcox.out$estimate
+  Stats_Out$Diff_lo[Stats_Out$Subset %in% "Midday"][i]<-min(Wilcox.out$conf.int)
+  Stats_Out$Diff_up[Stats_Out$Subset %in% "Midday"][i]<-max(Wilcox.out$conf.int)
+}
+
+```
+
+
+## Morning commute (8am)
+
+Same for morning commuter period (8am)
+
+```{r}
+
+for (i in 1:length(unique(Stats_Out$Index))) {
+  
+  Data<-data.frame("Post_Index" = Eight[Eight$Period %in% "Post-lockdown",1+i],
+                   "Lock_Index" = c(Eight[Eight$Period %in% "Lockdown",1+i],
+                                    rep(NA,length(Eight[Eight$Period %in% 
+                                                             "Post-lockdown",1+i])-length(Eight[Eight$Period %in% 
+                                                                                                     "Lockdown",1+i]))))
+  Wilcox.out<-wilcox.test(x = Data$Lock_Index, 
+                          y = Data$Post_Index, 
+                          na.rm=TRUE, 
+                          paired=TRUE, 
+                          exact=FALSE, 
+                          conf.int=TRUE, 
+                          digits.rank = 7)
+  
+  Stats_Out$U[Stats_Out$Subset %in% "8am"][i]<-Wilcox.out$statistic
+  Stats_Out$p.val[Stats_Out$Subset %in% "8am"][i]<-Wilcox.out$p.value
+  Stats_Out$Z[Stats_Out$Subset %in% "8am"][i]<-qnorm(Wilcox.out$p.value/2)
+  Stats_Out$Lock_med[Stats_Out$Subset %in% "8am"][i]<-median(Data$Lock_Index,na.rm = T)
+  Stats_Out$Lock_SD[Stats_Out$Subset %in% "8am"][i]<-sd(Data$Lock_Index,na.rm = T)
+  Stats_Out$Post_med[Stats_Out$Subset %in% "8am"][i]<-median(Data$Post_Index,na.rm = T)
+  Stats_Out$Post_SD[Stats_Out$Subset %in% "8am"][i]<-sd(Data$Post_Index,na.rm = T)
+  Stats_Out$Diff[Stats_Out$Subset %in% "8am"][i]<-Wilcox.out$estimate
+  Stats_Out$Diff_lo[Stats_Out$Subset %in% "8am"][i]<-min(Wilcox.out$conf.int)
+  Stats_Out$Diff_up[Stats_Out$Subset %in% "8am"][i]<-max(Wilcox.out$conf.int)
+}
+
+```
+
+Add significance marker:
+
+```{r}
+
+Stats_Out$Sig<-1
+Stats_Out$Sig[Stats_Out$p.val > 0.05]<-0
+
+# change incorrect z value directions
+for (i in 1:nrow(Stats_Out)) {
+  if(sign(Stats_Out$Diff[i]) == 1){
+  Stats_Out$Z[i]<-abs(Stats_Out$Z[i])
+  }
+}
+
+```
+
+
+## Plot the results
+
+```{r}
+
+Stats_Out$Subset<-parse_factor(as.character(Stats_Out$Subset),
+                               levels = c("All","Dawn","6am","8am","Midday","Midnight"),
+                               ordered = T)
+
+Stats_Out$Index<-parse_factor(as.character(Stats_Out$Index),
+                              levels = c("ACI","ADiv","AEve","BioA","M","H","Ht","ARic","NDSI","NDSI_Bio","NDSI_Anth"),
+                              ordered = T)
+
+Stats_Out$Sig<-parse_factor(as.character(Stats_Out$Sig),
+                              levels = c("0","1"),
+                              ordered = F)
+
+```
+
+```{r}
+
+# Fig. 2a
+ggplot(data = Stats_Out[Stats_Out$Subset %in% "All",],
+       mapping = aes(x = Index,
+                     y = Diff,
+                     ymin = Diff_lo,
+                     ymax = Diff_up),
+       group = Index) +
+  ylab("Standardised effect size") + 
+  xlab("Acoustic Index") + 
+  theme_classic() +
+  theme(text = element_text(size = 16), 
+        axis.text = element_text(colour = "black"), 
+        axis.text.x = element_text(angle = 45, hjust=1),
+        strip.background = element_blank(),
+        legend.position = "bottom") + 
+  geom_hline(yintercept = 0,lty = 3) +
+  geom_pointrange(mapping = aes(shape = Sig),
+                  col = '#003F5C',
+             size = 0.75,
+             show.legend = FALSE) +
+  scale_shape_manual(values = c(17,16), 
+                     guide = FALSE) 
+
+# Fig. 4
+ggplot(data = Stats_Out[Stats_Out$Subset %!in% "All",],
+       mapping = aes(x = Subset,
+                     y = Diff,
+                     ymin = Diff_lo,
+                     ymax = Diff_up),
+       group = Index) +
+  ylab("Standardised effect size") + 
+  xlab("Hour of day") + 
+  theme_classic() +
+  theme(text = element_text(size = 16), 
+        axis.text = element_text(colour = "black"), 
+        axis.text.x = element_text(angle = 45, hjust=1),
+        strip.background = element_blank(),
+        legend.position = "bottom") + 
+  geom_hline(yintercept = 0,lty = 3) +
+  geom_pointrange(mapping = aes(col = Subset,shape = Sig),
+             size = 0.75,
+             show.legend = FALSE) +
+  facet_wrap(. ~ Index,
+             scales = 'free') +
+  scale_shape_manual(values = c(17,16), 
+                     guide = FALSE) +
+  scale_color_manual(values = colramp(5))
+
+```
+
+## Temporal variability
+
+Next I'll calculate the temporal variability of the acoustic index time series. My framework for calculating temporal variability using a single data point per day (e.g. the dawn chorus) is to produce a linear model and measure the residuals around the model slope as an indicator of variability. Because acoustic index data are highly skewed and often heteroskastic we'll follow suggestions by Bradfer-Lawrence _et al._ (2020) and use binary GLM models. 
+
+```{r}
+
+Var_Out<-data.frame("Index"=rep(as.character(colnames(Standard)[c(2:12)]),each=12),
+                    "Subset"=rep(rep(c("All","Dawn","6am","Midnight","Midday","8am"),each=2),11),
+                    "Period"=rep(as.character(c("Lockdown","Post-lockdown")),132),
+                    'Var'=NA,'SD'=NA,"Var_lo"=NA,"Var_up"=NA,"N"=NA)
+
+```
+
+Let's fit simple Acoustic index ~ time models without considering differences across month. Then temporal variability is calculated as the mean of the absolute residuals from the slope of these models: 
+
+```{r,include=FALSE}
+
+# generate models per period x index
+model.out_lock<-list()
+model.out_post<-list()
+
+for (i in 1:11) {
+
+  Lock_data<-Standard[Standard$Period %in% "Lockdown",1+i]
+  Post_data<-Standard[Standard$Period %in% "Post-lockdown",1+i]
+  
+  model.out_lock[[i]]<-glm(Lock_data ~ time,
+                           data = Standard[Standard$Period %in% "Lockdown",],
+                           family = beta_family(link = "logit"))
+
+  model.out_post[[i]]<-glm(Post_data ~ time,
+                           data = Standard[Standard$Period %in% "Post-lockdown",],
+                           family = beta_family(link = "logit"))
+  
+  # get means and sds of abs model residuals as values of temporal variability
+  Var_Out$Var[Var_Out$Period %in% "Lockdown" & Var_Out$Subset %in% "All" &
+                   Var_Out$Index %in% unique(Var_Out$Index)[i]]<-mean(abs(model.out_lock[[i]]$residuals))
+  Var_Out$SD[Var_Out$Period %in% "Lockdown" & Var_Out$Subset %in% "All" &
+                   Var_Out$Index %in% unique(Var_Out$Index)[i]]<-sd(abs(model.out_lock[[i]]$residuals))
+  Var_Out$N[Var_Out$Period %in% "Lockdown" & Var_Out$Subset %in% "All" &
+                   Var_Out$Index %in% unique(Var_Out$Index)[i]]<-length(model.out_lock[[i]]$residuals)
+  Var_Out$Var[Var_Out$Period %in% "Post-lockdown" & Var_Out$Subset %in% "All" & 
+                   Var_Out$Index %in% unique(Var_Out$Index)[i]]<-mean(abs(model.out_post[[i]]$residuals))
+  Var_Out$SD[Var_Out$Period %in% "Post-lockdown" & Var_Out$Subset %in% "All" & 
+                   Var_Out$Index %in% unique(Var_Out$Index)[i]]<-sd(abs(model.out_post[[i]]$residuals))
+  Var_Out$N[Var_Out$Period %in% "Post-lockdown" & Var_Out$Subset %in% "All" &
+                   Var_Out$Index %in% unique(Var_Out$Index)[i]]<-length(model.out_post[[i]]$residuals)
+}
+
+```
+
+Dawn Chorus:
+
+```{r}
+
+# generate models per period x index
+model.out_lock<-list()
+model.out_post<-list()
+
+for (i in 1:11) {
+
+  Lock_data<-Dawn.chorus[Dawn.chorus$Period %in% "Lockdown",1+i]
+  Post_data<-Dawn.chorus[Dawn.chorus$Period %in% "Post-lockdown",1+i]
+  
+  model.out_lock[[i]]<-glm(Lock_data ~ time,
+                           data = Dawn.chorus[Dawn.chorus$Period %in% "Lockdown",],
+                           family = beta_family(link = "logit"))
+
+  model.out_post[[i]]<-glm(Post_data ~ time,
+                           data = Dawn.chorus[Dawn.chorus$Period %in% "Post-lockdown",],
+                           family = beta_family(link = "logit"))
+  
+  # get means and sds of abs model residuals as values of temporal variability
+  Var_Out$Var[Var_Out$Period %in% "Lockdown" & Var_Out$Subset %in% "Dawn" &
+                   Var_Out$Index %in% unique(Var_Out$Index)[i]]<-mean(abs(model.out_lock[[i]]$residuals))
+  Var_Out$SD[Var_Out$Period %in% "Lockdown" & Var_Out$Subset %in% "Dawn" &
+                   Var_Out$Index %in% unique(Var_Out$Index)[i]]<-sd(abs(model.out_lock[[i]]$residuals))
+  Var_Out$N[Var_Out$Period %in% "Lockdown" & Var_Out$Subset %in% "Dawn" &
+                   Var_Out$Index %in% unique(Var_Out$Index)[i]]<-length(model.out_lock[[i]]$residuals)
+  Var_Out$Var[Var_Out$Period %in% "Post-lockdown" & Var_Out$Subset %in% "Dawn" & 
+                   Var_Out$Index %in% unique(Var_Out$Index)[i]]<-mean(abs(model.out_post[[i]]$residuals))
+  Var_Out$SD[Var_Out$Period %in% "Post-lockdown" & Var_Out$Subset %in% "Dawn" & 
+                   Var_Out$Index %in% unique(Var_Out$Index)[i]]<-sd(abs(model.out_post[[i]]$residuals))
+  Var_Out$N[Var_Out$Period %in% "Post-lockdown" & Var_Out$Subset %in% "Dawn" &
+                   Var_Out$Index %in% unique(Var_Out$Index)[i]]<-length(model.out_post[[i]]$residuals)
+}
+
+```
+
+6am: 
+
+```{r,include=FALSE}
+
+# generate models per period x index
+model.out_lock<-list()
+model.out_post<-list()
+
+for (i in 1:11) {
+
+  Lock_data<-Six[Six$Period %in% "Lockdown",1+i]
+  Post_data<-Six[Six$Period %in% "Post-lockdown",1+i]
+  
+  model.out_lock[[i]]<-glm(Lock_data ~ time,
+                           data = Six[Six$Period %in% "Lockdown",],
+                           family = beta_family(link = "logit"))
+
+  model.out_post[[i]]<-glm(Post_data ~ time,
+                           data = Six[Six$Period %in% "Post-lockdown",],
+                           family = beta_family(link = "logit"))
+  
+  # get means and sds of abs model residuals as values of temporal variability
+  Var_Out$Var[Var_Out$Period %in% "Lockdown" & Var_Out$Subset %in% "6am" &
+                   Var_Out$Index %in% unique(Var_Out$Index)[i]]<-mean(abs(model.out_lock[[i]]$residuals))
+  Var_Out$SD[Var_Out$Period %in% "Lockdown" & Var_Out$Subset %in% "6am" &
+                   Var_Out$Index %in% unique(Var_Out$Index)[i]]<-sd(abs(model.out_lock[[i]]$residuals))
+  Var_Out$N[Var_Out$Period %in% "Lockdown" & Var_Out$Subset %in% "6am" &
+                   Var_Out$Index %in% unique(Var_Out$Index)[i]]<-length(model.out_lock[[i]]$residuals)
+  Var_Out$Var[Var_Out$Period %in% "Post-lockdown" & Var_Out$Subset %in% "6am" & 
+                   Var_Out$Index %in% unique(Var_Out$Index)[i]]<-mean(abs(model.out_post[[i]]$residuals))
+  Var_Out$SD[Var_Out$Period %in% "Post-lockdown" & Var_Out$Subset %in% "6am" & 
+                   Var_Out$Index %in% unique(Var_Out$Index)[i]]<-sd(abs(model.out_post[[i]]$residuals))
+  Var_Out$N[Var_Out$Period %in% "Post-lockdown" & Var_Out$Subset %in% "6am" &
+                   Var_Out$Index %in% unique(Var_Out$Index)[i]]<-length(model.out_post[[i]]$residuals)
+
+}
+
+```
+
+8am: 
+
+```{r,include=FALSE}
+
+# generate models per period x index
+model.out_lock<-list()
+model.out_post<-list()
+
+for (i in 1:11) {
+
+  Lock_data<-Eight[Eight$Period %in% "Lockdown",1+i]
+  Post_data<-Eight[Eight$Period %in% "Post-lockdown",1+i]
+  
+  model.out_lock[[i]]<-glm(Lock_data ~ time,
+                           data = Eight[Eight$Period %in% "Lockdown",],
+                           family = beta_family(link = "logit"))
+
+  model.out_post[[i]]<-glm(Post_data ~ time,
+                           data = Eight[Eight$Period %in% "Post-lockdown",],
+                           family = beta_family(link = "logit"))
+  
+  # get means and sds of abs model residuals as values of temporal variability
+  Var_Out$Var[Var_Out$Period %in% "Lockdown" & Var_Out$Subset %in% "8am" &
+                   Var_Out$Index %in% unique(Var_Out$Index)[i]]<-mean(abs(model.out_lock[[i]]$residuals))
+  Var_Out$SD[Var_Out$Period %in% "Lockdown" & Var_Out$Subset %in% "8am" &
+                   Var_Out$Index %in% unique(Var_Out$Index)[i]]<-sd(abs(model.out_lock[[i]]$residuals))
+  Var_Out$N[Var_Out$Period %in% "Lockdown" & Var_Out$Subset %in% "8am" &
+                   Var_Out$Index %in% unique(Var_Out$Index)[i]]<-length(model.out_lock[[i]]$residuals)
+  Var_Out$Var[Var_Out$Period %in% "Post-lockdown" & Var_Out$Subset %in% "8am" & 
+                   Var_Out$Index %in% unique(Var_Out$Index)[i]]<-mean(abs(model.out_post[[i]]$residuals))
+  Var_Out$SD[Var_Out$Period %in% "Post-lockdown" & Var_Out$Subset %in% "8am" & 
+                   Var_Out$Index %in% unique(Var_Out$Index)[i]]<-sd(abs(model.out_post[[i]]$residuals))
+  Var_Out$N[Var_Out$Period %in% "Post-lockdown" & Var_Out$Subset %in% "8am" &
+                   Var_Out$Index %in% unique(Var_Out$Index)[i]]<-length(model.out_post[[i]]$residuals)
+
+}
+
+```
+
+Midday: 
+
+```{r,include=FALSE}
+
+# generate models per period x index
+model.out_lock<-list()
+model.out_post<-list()
+
+for (i in 1:11) {
+
+  Lock_data<-Midday[Midday$Period %in% "Lockdown",1+i]
+  Post_data<-Midday[Midday$Period %in% "Post-lockdown",1+i]
+  
+  model.out_lock[[i]]<-glm(Lock_data ~ time,
+                           data = Midday[Midday$Period %in% "Lockdown",],
+                           family = beta_family(link = "logit"))
+
+  model.out_post[[i]]<-glm(Post_data ~ time,
+                           data = Midday[Midday$Period %in% "Post-lockdown",],
+                           family = beta_family(link = "logit"))
+  
+  # get means and sds of abs model residuals as values of temporal variability
+  Var_Out$Var[Var_Out$Period %in% "Lockdown" & Var_Out$Subset %in% "Midday" &
+                   Var_Out$Index %in% unique(Var_Out$Index)[i]]<-mean(abs(model.out_lock[[i]]$residuals))
+  Var_Out$SD[Var_Out$Period %in% "Lockdown" & Var_Out$Subset %in% "Midday" &
+                   Var_Out$Index %in% unique(Var_Out$Index)[i]]<-sd(abs(model.out_lock[[i]]$residuals))
+  Var_Out$N[Var_Out$Period %in% "Lockdown" & Var_Out$Subset %in% "Midday" &
+                   Var_Out$Index %in% unique(Var_Out$Index)[i]]<-length(model.out_lock[[i]]$residuals)
+  Var_Out$Var[Var_Out$Period %in% "Post-lockdown" & Var_Out$Subset %in% "Midday" & 
+                   Var_Out$Index %in% unique(Var_Out$Index)[i]]<-mean(abs(model.out_post[[i]]$residuals))
+  Var_Out$SD[Var_Out$Period %in% "Post-lockdown" & Var_Out$Subset %in% "Midday" & 
+                   Var_Out$Index %in% unique(Var_Out$Index)[i]]<-sd(abs(model.out_post[[i]]$residuals))
+  Var_Out$N[Var_Out$Period %in% "Post-lockdown" & Var_Out$Subset %in% "Midday" &
+                   Var_Out$Index %in% unique(Var_Out$Index)[i]]<-length(model.out_post[[i]]$residuals)
+}
+
+```
+
+Midnight: 
+
+```{r,include=FALSE}
+
+# generate models per period x index
+model.out_lock<-list()
+model.out_post<-list()
+
+for (i in 1:11) {
+
+  Lock_data<-Midnight[Midnight$Period %in% "Lockdown",1+i]
+  Post_data<-Midnight[Midnight$Period %in% "Post-lockdown",1+i]
+  
+  model.out_lock[[i]]<-glm(Lock_data ~ time,
+                           data = Midnight[Midnight$Period %in% "Lockdown",],
+                           family = beta_family(link = "logit"))
+
+  model.out_post[[i]]<-glm(Post_data ~ time,
+                           data = Midnight[Midnight$Period %in% "Post-lockdown",],
+                           family = beta_family(link = "logit"))
+  
+  # get means and sds of abs model residuals as values of temporal variability
+  Var_Out$Var[Var_Out$Period %in% "Lockdown" & Var_Out$Subset %in% "Midnight" &
+                   Var_Out$Index %in% unique(Var_Out$Index)[i]]<-mean(abs(model.out_lock[[i]]$residuals))
+  Var_Out$SD[Var_Out$Period %in% "Lockdown" & Var_Out$Subset %in% "Midnight" &
+                   Var_Out$Index %in% unique(Var_Out$Index)[i]]<-sd(abs(model.out_lock[[i]]$residuals))
+  Var_Out$N[Var_Out$Period %in% "Lockdown" & Var_Out$Subset %in% "Midnight" &
+                   Var_Out$Index %in% unique(Var_Out$Index)[i]]<-length(model.out_lock[[i]]$residuals)
+  Var_Out$Var[Var_Out$Period %in% "Post-lockdown" & Var_Out$Subset %in% "Midnight" & 
+                   Var_Out$Index %in% unique(Var_Out$Index)[i]]<-mean(abs(model.out_post[[i]]$residuals))
+  Var_Out$SD[Var_Out$Period %in% "Post-lockdown" & Var_Out$Subset %in% "Midnight" & 
+                   Var_Out$Index %in% unique(Var_Out$Index)[i]]<-sd(abs(model.out_post[[i]]$residuals))
+  Var_Out$N[Var_Out$Period %in% "Post-lockdown" & Var_Out$Subset %in% "Midnight" &
+                   Var_Out$Index %in% unique(Var_Out$Index)[i]]<-length(model.out_post[[i]]$residuals)
+}
+
+```
+
+Get confidence intervals: 
+
+```{r}
+
+Var_Out$Var_lo<-Var_Out$Var-Var_Out$SD
+Var_Out$Var_up<-Var_Out$Var+Var_Out$SD
+
+```
+
+```{r}
+
+Var_Out$Subset<-parse_factor(as.character(Var_Out$Subset),
+                             levels = c("All","Dawn","6am","8am","Midday","Midnight"),
+                             ordered = T)
+
+Var_Out$Index<-parse_factor(as.character(Var_Out$Index),
+                            levels = c("ACI","ADiv","AEve","BioA","M","H","Ht","ARic","NDSI","NDSI_Bio","NDSI_Anth"),
+                            ordered = T)
+
+Var_Out$Period<-parse_factor(as.character(Var_Out$Period),
+                             levels = c("Lockdown","Post-lockdown"),
+                             ordered = T)
+
+Var_Out$Var_lo[Var_Out$Var_lo < 0]<-0 #NB: since negative Temporal variability values are meaningless, we'll coerce these into zeros:
+
+```
+
+
+## Confidence interval for difference in variability
+
+Finally, let's get a confidence interval around the difference between 2 means with standard deviations. Set up out output: 
+
+```{r}
+
+Var_SES<-Stats_Out[,c(1,2,5:8)]
+Var_SES[,c(3:6)]<-NA
+
+```
+
+Calculate standardised effect sizes for the temporal variability of the difference between lockdown and post-lockdown:
+
+```{r}
+
+z<-1.96 # this is the critical z value for 95% confidence
+
+for (i in 1:nrow(Var_SES)) {
+  
+  x_lock<-Var_Out$Var[Var_Out$Period %in% "Lockdown"][i]
+  x_post<-Var_Out$Var[Var_Out$Period %in% "Post-lockdown"][i]
+  sd_lock<-Var_Out$SD[Var_Out$Period %in% "Lockdown"][i]
+  sd_post<-Var_Out$SD[Var_Out$Period %in% "Post-lockdown"][i]
+  N_lock<-Var_Out$N[Var_Out$Period %in% "Lockdown"][i]
+  N_post<-Var_Out$N[Var_Out$Period %in% "Post-lockdown"][i]
+  Diff<-x_lock-x_post
+  Err<-sqrt(((sd_lock^2)/N_lock)+((sd_post^2)/N_post))*z
+  Var_SES$Diff[i]<-Diff
+  Var_SES$Diff_lo[i]<-Diff-Err
+  Var_SES$Diff_up[i]<-Diff+Err
+  
+}
+
+```
+
+Get whether these values cross zero: 
+
+```{r}
+
+Var_SES$Sig<-0
+Var_SES$Sig[sign(Var_SES$Diff_lo) + sign(Var_SES$Diff_up) != 0]<-1
+
+```
+
+# Plot the results
+
+```{r}
+
+Var_SES$Subset<-parse_factor(as.character(Var_SES$Subset),
+                             levels = c("All","Dawn","6am","8am","Midday","Midnight"),
+                             ordered = T)
+
+Var_SES$Index<-parse_factor(as.character(Var_SES$Index),
+                            levels = c("ACI","ADiv","AEve","BioA","M","H","Ht","ARic","NDSI","NDSI_Bio","NDSI_Anth"),
+                            ordered = T)
+
+Var_SES$Sig<-parse_factor(as.character(Var_SES$Sig),
+                          levels = c("0","1"),
+                          ordered = F)
+
+```
+
+```{r}
+
+# Fig. 2b
+ggplot(data = Var_SES[Var_SES$Subset %in% "All",],
+       mapping = aes(x = Index,
+                     y = Diff,
+                     ymin = Diff_lo,
+                     ymax = Diff_up),
+       group = Index) +
+  ylab("Standardised effect size (temporal variability)") + 
+  xlab("Acoustic Index") + 
+  theme_classic() +
+  theme(text = element_text(size = 16), 
+        axis.text = element_text(colour = "black"), 
+        axis.text.x = element_text(angle = 45, hjust=1),
+        strip.background = element_blank(),
+        legend.position = "bottom") + 
+  geom_hline(yintercept = 0,lty = 3) +
+  geom_pointrange(mapping = aes(shape = Sig),
+                  col = '#003F5C',
+             size = 0.75,
+             show.legend = FALSE) +
+  scale_shape_manual(values = c(17,16), 
+                     guide = FALSE) 
+
+# Fig. S4
+ggplot(data = Var_SES[Var_SES$Subset %!in% "All",],
+       mapping = aes(x = Subset,
+                     y = Diff,
+                     ymin = Diff_lo,
+                     ymax = Diff_up),
+       group = Index) +
+  ylab("Standardised effect size (temporal variability)") + 
+  xlab("Hour of day") + 
+  theme_classic() +
+  theme(text = element_text(size = 16), 
+        axis.text = element_text(colour = "black"), 
+        axis.text.x = element_text(angle = 45, hjust=1),
+        strip.background = element_blank(),
+        legend.position = "bottom") + 
+  geom_hline(yintercept = 0,lty = 3) +
+  geom_pointrange(mapping = aes(col = Subset,shape = Sig),
+             size = 0.75,
+             show.legend = FALSE) +
+  facet_wrap(. ~ Index,
+             scales = 'free') +
+  scale_shape_manual(values = c(17,16), 
+                     guide = FALSE) +
+  scale_color_manual(values = colramp(5))
+
+```
+
+~Fin.~
